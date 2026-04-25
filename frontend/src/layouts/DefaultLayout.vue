@@ -8,7 +8,8 @@ import {
   ShoppingCartIcon, 
   CurrencyDollarIcon,
   Bars3Icon,
-  XMarkIcon
+  XMarkIcon,
+  UserIcon
 } from '@heroicons/vue/24/outline';
 import { ref } from 'vue';
 import { RouterLink, RouterView, useRouter } from 'vue-router';
@@ -19,7 +20,7 @@ const toggleDark = useToggle(isDark);
 
 const isSidebarOpen = ref(false);
 
-const { logout } = useAuth();
+const { auth, logout } = useAuth();
 const router = useRouter();
 
 const handleLogout = async () => {
@@ -66,13 +67,19 @@ const navigation = [
         </nav>
 
         <div class="p-4 border-t border-slate-200 dark:border-slate-800">
-          <button 
-            @click="handleLogout"
-            class="flex items-center gap-3 w-full px-3 py-2 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/10 rounded-lg transition-colors mb-2"
+          <RouterLink 
+            to="/me"
+            class="flex items-center gap-3 w-full px-3 py-3 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-all group mb-2"
+            :class="$route.path === '/me' ? 'bg-primary-50 dark:bg-primary-900/20' : ''"
           >
-            <XMarkIcon class="w-5 h-5" />
-            <span class="font-medium">Sair</span>
-          </button>
+            <div class="w-10 h-10 rounded-full bg-primary-600 flex items-center justify-center text-white font-bold shrink-0 shadow-lg shadow-primary-500/20 group-hover:scale-110 transition-transform">
+              {{ auth.user?.name?.charAt(0).toUpperCase() || 'U' }}
+            </div>
+            <div class="flex-1 min-w-0">
+              <p class="text-sm font-bold text-slate-900 dark:text-white truncate">{{ auth.user?.name || 'Usuário' }}</p>
+              <p class="text-xs text-slate-500 dark:text-slate-400 truncate">Ver Perfil</p>
+            </div>
+          </RouterLink>
 
           <button 
             @click="toggleDark()"

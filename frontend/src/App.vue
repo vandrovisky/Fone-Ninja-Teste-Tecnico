@@ -8,7 +8,7 @@ const route = useRoute();
 </script>
 
 <template>
-  <DefaultLayout v-if="route.name !== 'login'" />
+  <DefaultLayout v-if="route.name !== 'login' && route.name !== 'register'" />
   <RouterView v-else />
   
   <!-- Global Components -->

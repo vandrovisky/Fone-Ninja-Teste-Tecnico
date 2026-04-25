@@ -41,6 +41,14 @@ export const useAuth = () => {
     return response.data;
   };
 
+  const register = async (data: any) => {
+    const response = await api.post('/register', data);
+    auth.token = response.data.token;
+    auth.user = response.data.user;
+    auth.isAuthenticated = true;
+    return response.data;
+  };
+
   const logout = async () => {
     try {
       await api.post('/logout');
@@ -53,5 +61,5 @@ export const useAuth = () => {
     localStorage.removeItem(STORAGE_KEY);
   };
 
-  return { auth, login, logout };
+  return { auth, login, register, logout };
 };
