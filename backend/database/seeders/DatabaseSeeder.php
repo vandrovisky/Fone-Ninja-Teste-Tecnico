@@ -35,8 +35,8 @@ class DatabaseSeeder extends Seeder
                 ['name' => $data['name']],
                 [
                     'sale_price'    => $data['sale_price'],
-                    'average_cost'  => 0,
-                    'current_stock' => 0,
+                    'average_cost'  => $data['sale_price'] * 0.5,
+                    'current_stock' => rand(5, 50),
                 ]
             );
         }
