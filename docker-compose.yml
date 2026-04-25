@@ -9,6 +9,7 @@ services:
       - "8080:80"
     volumes:
       - ./backend:/var/www/html
+      - backend_vendor:/var/www/html/vendor
     environment:
       - APP_ENV=local
       - APP_KEY=base64:3fF6djSO2NQloBcCczeFhdrTiWuJ083YcsCXEQEUA7s=
@@ -68,4 +69,6 @@ networks:
 
 volumes:
   mysql_data:
+    driver: local
+  backend_vendor:
     driver: local

@@ -5,8 +5,8 @@ if [ ! -f .env ]; then
     cp .env.example .env
 fi
 
-if [ ! -d vendor ]; then
-    composer install --no-interaction --prefer-dist --optimize-autoloader
+if [ ! -f vendor/autoload.php ]; then
+    composer install --no-interaction --optimize-autoloader
 fi
 
 php artisan key:generate --no-interaction --force

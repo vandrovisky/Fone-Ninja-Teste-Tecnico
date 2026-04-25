@@ -50,15 +50,27 @@ export const useAuth = () => {
   };
 
   const logout = async () => {
-    try {
-      await api.post('/logout');
-    } catch (e) {
-      // Ignore logout error if token is already invalid
-    }
+    const token = auth.token;
+
     auth.token = null;
     auth.user = null;
     auth.isAuthenticated = false;
     localStorage.removeItem(STORAGE_KEY);
+    delete api.defaults.headers.common['Authorization'];
+
+    if (!token) {
+      return;
+    }
+
+    try {
+      await api.post('/logout', {}, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+    } catch (e) {
+      // Ignore logout error if token is already invalid
+    }
   };
 
   return { auth, login, register, logout };
