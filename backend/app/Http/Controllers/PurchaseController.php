@@ -17,9 +17,27 @@ class PurchaseController extends Controller
         $this->purchaseService = $purchaseService;
     }
 
-    public function index()
+    public function index(Request $request)
     {
-        return response()->json(Purchase::with('items.product')->latest()->get());
+        $perPage = $request->input('per_page', 15);
+
+        $paginated = Purchase::with('items.product')->latest()->paginate($perPage);
+
+        $paginated->getCollection()->transform(fn($purchase) => [
+            'id'          => $purchase->id,
+            'supplier'    => $purchase->supplier,
+            'total_value' => (float) $purchase->total_value,
+            'created_at'  => $purchase->created_at,
+            'items'       => $purchase->items->map(fn($item) => [
+                'id'           => $item->id,
+                'product_id'   => $item->product_id,
+                'product_name' => $item->product?->name,
+                'quantity'     => $item->quantity,
+                'unit_price'   => (float) $item->unit_price,
+            ]),
+        ]);
+
+        return response()->json($paginated);
     }
 
     public function store(Request $request)

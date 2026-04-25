@@ -1,11 +1,17 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue';
+import { useRouter } from 'vue-router';
 import api from '@/services/api';
-import { PlusIcon, TrashIcon, ShoppingBagIcon } from '@heroicons/vue/24/outline';
+import { useToast } from '@/composables/useToast';
+import SearchableSelect from '@/components/ui/SearchableSelect.vue';
+import CurrencyInput from '@/components/ui/CurrencyInput.vue';
+import { PlusIcon, TrashIcon, ShoppingBagIcon, ArrowLeftIcon } from '@heroicons/vue/24/outline';
+import type { SelectOption } from '@/components/ui/SearchableSelect.vue';
 
 interface Product {
   id: number;
   nome: string;
+  preco_venda: number;
 }
 
 interface PurchaseItem {
@@ -14,6 +20,9 @@ interface PurchaseItem {
   preco_unitario: number;
 }
 
+const toast = useToast();
+const router = useRouter();
+
 const products = ref<Product[]>([]);
 const purchaseItems = ref<PurchaseItem[]>([]);
 const supplier = ref('');
@@ -21,14 +30,25 @@ const loading = ref(false);
 
 const fetchProducts = async () => {
   try {
-    const response = await api.get('/produtos');
-    products.value = response.data;
+    const response = await api.get('/products', { params: { per_page: 100 } });
+    products.value = response.data.data ?? response.data;
   } catch (error) {
-    console.error('Erro ao buscar produtos:', error);
+    toast.error('Erro ao carregar produtos.');
   }
 };
 
+const productOptions = computed<SelectOption[]>(() => {
+  return products.value.map(p => ({
+    value: p.id,
+    label: p.nome,
+  }));
+});
+
 const addItem = () => {
+  if (products.value.length === 0) {
+    toast.warning('Cadastre um produto antes de adicionar itens.');
+    return;
+  }
   purchaseItems.value.push({
     id: products.value[0]?.id || 0,
     quantidade: 1,
@@ -40,27 +60,48 @@ const removeItem = (index: number) => {
   purchaseItems.value.splice(index, 1);
 };
 
+const getSubtotal = (item: PurchaseItem) => {
+  return item.quantidade * item.preco_unitario;
+};
+
+const totalQuantity = computed(() => {
+  return purchaseItems.value.reduce((acc, item) => acc + item.quantidade, 0);
+});
+
 const totalPurchase = computed(() => {
-  return purchaseItems.value.reduce((acc, item) => acc + (item.quantidade * item.preco_unitario), 0);
+  return purchaseItems.value.reduce((acc, item) => acc + getSubtotal(item), 0);
 });
 
 const submitPurchase = async () => {
-  if (!supplier.value || purchaseItems.value.length === 0) return;
+  if (!supplier.value.trim()) {
+    toast.warning('Informe o nome do fornecedor.');
+    return;
+  }
+  if (purchaseItems.value.length === 0) {
+    toast.warning('Adicione pelo menos um item à compra.');
+    return;
+  }
+
+  const invalidItems = purchaseItems.value.filter(i => i.preco_unitario <= 0 || i.quantidade <= 0);
+  if (invalidItems.length > 0) {
+    toast.warning('Todos os itens devem ter quantidade e preço válidos.');
+    return;
+  }
 
   try {
     loading.value = true;
-    await api.post('/compras', {
+    await api.post('/purchases', {
       fornecedor: supplier.value,
       produtos: purchaseItems.value
     });
     
-    // Reset form
+    toast.success('Compra registrada com sucesso! Estoque e custo médio atualizados.');
     supplier.value = '';
     purchaseItems.value = [];
-    alert('Compra registrada com sucesso!');
-  } catch (error) {
-    console.error('Erro ao registrar compra:', error);
-    alert('Erro ao registrar compra.');
+    fetchProducts();
+  } catch (error: any) {
+    const message = error.response?.data?.message || 'Erro ao registrar compra.';
+    toast.error(message);
   } finally {
     loading.value = false;
   }
@@ -75,9 +116,18 @@ const formatCurrency = (value: number) => {
 
 <template>
   <div class="space-y-6">
-    <div>
-      <h2 class="text-2xl font-bold text-slate-900 dark:text-white">Registrar Compra</h2>
-      <p class="text-slate-600 dark:text-slate-400">Entrada de produtos no estoque.</p>
+    <div class="flex items-center gap-4">
+      <button
+        @click="router.push('/purchases/list')"
+        class="p-2 rounded-xl text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+        title="Voltar"
+      >
+        <ArrowLeftIcon class="w-5 h-5" />
+      </button>
+      <div>
+        <h2 class="text-2xl font-bold text-slate-900 dark:text-white">Registrar Compra</h2>
+        <p class="text-slate-600 dark:text-slate-400">Entrada de produtos no estoque.</p>
+      </div>
     </div>
 
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
@@ -89,7 +139,7 @@ const formatCurrency = (value: number) => {
             <input 
               v-model="supplier"
               type="text" 
-              class="w-full bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700 rounded-xl px-4 py-2 text-slate-900 dark:text-white focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-all"
+              class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-2.5 text-slate-900 dark:text-white focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-all outline-none"
               placeholder="Nome do fornecedor"
             >
           </div>
@@ -113,12 +163,11 @@ const formatCurrency = (value: number) => {
             <div v-for="(item, index) in purchaseItems" :key="index" class="flex flex-wrap md:flex-nowrap items-end gap-4 p-4 bg-slate-50 dark:bg-slate-800/50 rounded-xl">
               <div class="flex-1 min-w-[200px]">
                 <label class="block text-xs font-medium text-slate-500 mb-1">Produto</label>
-                <select 
+                <SearchableSelect
                   v-model="item.id"
-                  class="w-full bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-white"
-                >
-                  <option v-for="p in products" :key="p.id" :value="p.id">{{ p.nome }}</option>
-                </select>
+                  :options="productOptions"
+                  placeholder="Buscar produto..."
+                />
               </div>
               <div class="w-24">
                 <label class="block text-xs font-medium text-slate-500 mb-1">Qtd</label>
@@ -126,17 +175,16 @@ const formatCurrency = (value: number) => {
                   v-model.number="item.quantidade"
                   type="number" 
                   min="1"
-                  class="w-full bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-white"
+                  class="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-white outline-none"
                 >
               </div>
-              <div class="w-32">
+              <div class="w-36">
                 <label class="block text-xs font-medium text-slate-500 mb-1">Preço Unit.</label>
-                <input 
-                  v-model.number="item.preco_unitario"
-                  type="number" 
-                  step="0.01"
-                  class="w-full bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-white"
-                >
+                <CurrencyInput v-model="item.preco_unitario" />
+              </div>
+              <div class="w-28 text-right">
+                <label class="block text-xs font-medium text-slate-500 mb-1">Subtotal</label>
+                <p class="text-sm font-medium text-slate-700 dark:text-slate-300 py-2">{{ formatCurrency(getSubtotal(item)) }}</p>
               </div>
               <button 
                 @click="removeItem(index)"
@@ -158,6 +206,10 @@ const formatCurrency = (value: number) => {
             <div class="flex justify-between text-slate-600 dark:text-slate-400">
               <span>Itens</span>
               <span>{{ purchaseItems.length }}</span>
+            </div>
+            <div class="flex justify-between text-slate-600 dark:text-slate-400">
+              <span>Quantidade Total</span>
+              <span>{{ totalQuantity }}</span>
             </div>
             <div class="flex justify-between text-lg font-bold text-slate-900 dark:text-white pt-3 border-t border-slate-100 dark:border-slate-800">
               <span>Total</span>

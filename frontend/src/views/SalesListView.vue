@@ -1,7 +1,10 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
 import api from '@/services/api';
-import { PlusIcon, CurrencyDollarIcon, TrashIcon } from '@heroicons/vue/24/outline';
+import { useToast } from '@/composables/useToast';
+import { useConfirm } from '@/composables/useConfirm';
+import AppPagination from '@/components/ui/AppPagination.vue';
+import { PlusIcon, TrashIcon } from '@heroicons/vue/24/outline';
 import { RouterLink } from 'vue-router';
 
 interface Sale {
@@ -13,33 +16,64 @@ interface Sale {
   items: any[];
 }
 
+interface PaginationMeta {
+  current_page: number;
+  last_page: number;
+  per_page: number;
+  total: number;
+}
+
+const toast = useToast();
+const { confirm } = useConfirm();
+
 const sales = ref<Sale[]>([]);
 const loading = ref(true);
+const pagination = ref<PaginationMeta>({ current_page: 1, last_page: 1, per_page: 15, total: 0 });
 
-const fetchSales = async () => {
+const fetchSales = async (page = 1) => {
   try {
     loading.value = true;
-    const response = await api.get('/vendas');
-    sales.value = response.data;
+    const response = await api.get('/sales', { params: { page, per_page: 15 } });
+    sales.value = response.data.data;
+    pagination.value = {
+      current_page: response.data.current_page,
+      last_page: response.data.last_page,
+      per_page: response.data.per_page,
+      total: response.data.total,
+    };
   } catch (error) {
-    console.error('Erro ao buscar vendas:', error);
+    toast.error('Erro ao carregar vendas.');
   } finally {
     loading.value = false;
   }
 };
 
-const deleteSale = async (id: number) => {
-  if (!confirm('Tem certeza que deseja cancelar esta venda? O estoque será revertido.')) return;
-  
+const deleteSale = async (sale: Sale) => {
+  const confirmed = await confirm({
+    title: 'Cancelar Venda',
+    message: `Tem certeza que deseja cancelar a venda #${sale.id} para "${sale.client}"? O estoque dos produtos será revertido.`,
+    confirmText: 'Sim, Cancelar Venda',
+    cancelText: 'Não, Manter',
+    variant: 'danger',
+  });
+
+  if (!confirmed) return;
+
   try {
-    await api.delete(`/vendas/${id}`);
-    fetchSales();
-  } catch (error) {
-    console.error('Erro ao cancelar venda:', error);
+    await api.delete(`/sales/${sale.id}`);
+    toast.success('Venda cancelada com sucesso! Estoque revertido.');
+    fetchSales(pagination.value.current_page);
+  } catch (error: any) {
+    const message = error.response?.data?.message || 'Erro ao cancelar venda.';
+    toast.error(message);
   }
 };
 
-onMounted(fetchSales);
+const handlePageChange = (page: number) => {
+  fetchSales(page);
+};
+
+onMounted(() => fetchSales());
 
 const formatCurrency = (value: number) => {
   return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value);
@@ -81,12 +115,12 @@ const formatDate = (date: string) => {
               <th class="px-6 py-4 text-sm font-semibold text-slate-900 dark:text-white">Data</th>
               <th class="px-6 py-4 text-sm font-semibold text-slate-900 dark:text-white">Cliente</th>
               <th class="px-6 py-4 text-sm font-semibold text-slate-900 dark:text-white text-right">Total</th>
-              <th class="px-6 py-4 text-sm font-semibold text-slate-900 dark:text-white text-right text-green-600 dark:text-green-400">Lucro</th>
+              <th class="px-6 py-4 text-sm font-semibold text-green-600 dark:text-green-400 text-right">Lucro</th>
               <th class="px-6 py-4 text-sm font-semibold text-slate-900 dark:text-white text-center">Ações</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-slate-200 dark:divide-slate-800">
-            <tr v-if="loading" v-for="i in 3" :key="i" class="animate-pulse">
+            <tr v-if="loading" v-for="i in 5" :key="i" class="animate-pulse">
               <td class="px-6 py-4"><div class="h-4 bg-slate-200 dark:bg-slate-800 rounded w-8"></div></td>
               <td class="px-6 py-4"><div class="h-4 bg-slate-200 dark:bg-slate-800 rounded w-24"></div></td>
               <td class="px-6 py-4"><div class="h-4 bg-slate-200 dark:bg-slate-800 rounded w-32"></div></td>
@@ -113,7 +147,7 @@ const formatDate = (date: string) => {
               </td>
               <td class="px-6 py-4 text-sm text-center">
                 <button 
-                  @click="deleteSale(sale.id)"
+                  @click="deleteSale(sale)"
                   class="text-slate-400 hover:text-red-600 transition-colors"
                   title="Cancelar Venda"
                 >
@@ -123,6 +157,16 @@ const formatDate = (date: string) => {
             </tr>
           </tbody>
         </table>
+      </div>
+
+      <!-- Pagination -->
+      <div class="px-6 py-3 border-t border-slate-200 dark:border-slate-800">
+        <AppPagination
+          :current-page="pagination.current_page"
+          :total-items="pagination.total"
+          :per-page="pagination.per_page"
+          @page-change="handlePageChange"
+        />
       </div>
     </div>
   </div>

@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
 import api from '@/services/api';
+import { useToast } from '@/composables/useToast';
+import AppPagination from '@/components/ui/AppPagination.vue';
 import { PlusIcon, ShoppingCartIcon } from '@heroicons/vue/24/outline';
 import { RouterLink } from 'vue-router';
 
@@ -12,22 +14,42 @@ interface Purchase {
   items: any[];
 }
 
+interface PaginationMeta {
+  current_page: number;
+  last_page: number;
+  per_page: number;
+  total: number;
+}
+
+const toast = useToast();
+
 const purchases = ref<Purchase[]>([]);
 const loading = ref(true);
+const pagination = ref<PaginationMeta>({ current_page: 1, last_page: 1, per_page: 15, total: 0 });
 
-const fetchPurchases = async () => {
+const fetchPurchases = async (page = 1) => {
   try {
     loading.value = true;
-    const response = await api.get('/compras');
-    purchases.value = response.data;
+    const response = await api.get('/purchases', { params: { page, per_page: 15 } });
+    purchases.value = response.data.data;
+    pagination.value = {
+      current_page: response.data.current_page,
+      last_page: response.data.last_page,
+      per_page: response.data.per_page,
+      total: response.data.total,
+    };
   } catch (error) {
-    console.error('Erro ao buscar compras:', error);
+    toast.error('Erro ao carregar compras.');
   } finally {
     loading.value = false;
   }
 };
 
-onMounted(fetchPurchases);
+const handlePageChange = (page: number) => {
+  fetchPurchases(page);
+};
+
+onMounted(() => fetchPurchases());
 
 const formatCurrency = (value: number) => {
   return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value);
@@ -73,7 +95,7 @@ const formatDate = (date: string) => {
             </tr>
           </thead>
           <tbody class="divide-y divide-slate-200 dark:divide-slate-800">
-            <tr v-if="loading" v-for="i in 3" :key="i" class="animate-pulse">
+            <tr v-if="loading" v-for="i in 5" :key="i" class="animate-pulse">
               <td class="px-6 py-4"><div class="h-4 bg-slate-200 dark:bg-slate-800 rounded w-8"></div></td>
               <td class="px-6 py-4"><div class="h-4 bg-slate-200 dark:bg-slate-800 rounded w-24"></div></td>
               <td class="px-6 py-4"><div class="h-4 bg-slate-200 dark:bg-slate-800 rounded w-32"></div></td>
@@ -103,6 +125,16 @@ const formatDate = (date: string) => {
             </tr>
           </tbody>
         </table>
+      </div>
+
+      <!-- Pagination -->
+      <div class="px-6 py-3 border-t border-slate-200 dark:border-slate-800">
+        <AppPagination
+          :current-page="pagination.current_page"
+          :total-items="pagination.total"
+          :per-page="pagination.per_page"
+          @page-change="handlePageChange"
+        />
       </div>
     </div>
   </div>

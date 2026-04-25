@@ -50,13 +50,11 @@ const router = createRouter({
   ],
 })
 
-router.beforeEach((to, from, next) => {
+router.beforeEach((to, from) => {
   if (to.meta.requiresAuth && !auth.isAuthenticated) {
-    next('/login');
+    return '/login';
   } else if (to.meta.guest && auth.isAuthenticated) {
-    next('/');
-  } else {
-    next();
+    return '/';
   }
 });
 

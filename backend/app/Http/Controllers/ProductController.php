@@ -8,17 +8,21 @@ use Illuminate\Support\Facades\Validator;
 
 class ProductController extends Controller
 {
-    public function index()
+    public function index(Request $request)
     {
-        $products = Product::all()->map(fn($p) => [
+        $perPage = $request->input('per_page', 15);
+
+        $paginated = Product::orderBy('name')->paginate($perPage);
+
+        $paginated->getCollection()->transform(fn($p) => [
             'id'          => $p->id,
             'nome'        => $p->name,
-            'custo_medio' => $p->average_cost,
-            'preco_venda' => $p->sale_price,
+            'custo_medio' => (float) $p->average_cost,
+            'preco_venda' => (float) $p->sale_price,
             'estoque'     => $p->current_stock,
         ]);
 
-        return response()->json($products);
+        return response()->json($paginated);
     }
 
     public function store(Request $request)
@@ -42,9 +46,57 @@ class ProductController extends Controller
         return response()->json([
             'id'          => $product->id,
             'nome'        => $product->name,
-            'custo_medio' => $product->average_cost,
-            'preco_venda' => $product->sale_price,
+            'custo_medio' => (float) $product->average_cost,
+            'preco_venda' => (float) $product->sale_price,
             'estoque'     => $product->current_stock,
         ], 201);
+    }
+
+    public function update(Request $request, $id)
+    {
+        $product = Product::findOrFail($id);
+
+        $validator = Validator::make($request->all(), [
+            'nome'        => 'required|string|min:3|unique:products,name,' . $product->id,
+            'preco_venda' => 'required|numeric|min:0.01',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['errors' => $validator->errors()], 422);
+        }
+
+        $product->update([
+            'name'       => $request->nome,
+            'sale_price' => $request->preco_venda,
+        ]);
+
+        return response()->json([
+            'id'          => $product->id,
+            'nome'        => $product->name,
+            'custo_medio' => (float) $product->average_cost,
+            'preco_venda' => (float) $product->sale_price,
+            'estoque'     => $product->current_stock,
+        ]);
+    }
+
+    public function destroy($id)
+    {
+        $product = Product::findOrFail($id);
+
+        if ($product->current_stock > 0) {
+            return response()->json([
+                'message' => 'Não é possível excluir um produto com estoque.'
+            ], 422);
+        }
+
+        if ($product->saleItems()->exists() || $product->purchaseItems()->exists()) {
+            return response()->json([
+                'message' => 'Não é possível excluir um produto com histórico de movimentações.'
+            ], 422);
+        }
+
+        $product->delete();
+
+        return response()->json(['message' => 'Produto excluído com sucesso.']);
     }
 }

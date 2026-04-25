@@ -1,13 +1,19 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue';
+import { useRouter } from 'vue-router';
 import api from '@/services/api';
-import { PlusIcon, TrashIcon, BanknotesIcon } from '@heroicons/vue/24/outline';
+import { useToast } from '@/composables/useToast';
+import SearchableSelect from '@/components/ui/SearchableSelect.vue';
+import CurrencyInput from '@/components/ui/CurrencyInput.vue';
+import { PlusIcon, TrashIcon, BanknotesIcon, ArrowLeftIcon } from '@heroicons/vue/24/outline';
+import type { SelectOption } from '@/components/ui/SearchableSelect.vue';
 
 interface Product {
   id: number;
   nome: string;
   estoque: number;
   preco_venda: number;
+  custo_medio: number;
 }
 
 interface SaleItem {
@@ -16,6 +22,9 @@ interface SaleItem {
   preco_unitario: number;
 }
 
+const toast = useToast();
+const router = useRouter();
+
 const products = ref<Product[]>([]);
 const saleItems = ref<SaleItem[]>([]);
 const client = ref('');
@@ -23,14 +32,26 @@ const loading = ref(false);
 
 const fetchProducts = async () => {
   try {
-    const response = await api.get('/produtos');
-    products.value = response.data;
+    const response = await api.get('/products', { params: { per_page: 100 } });
+    products.value = response.data.data ?? response.data;
   } catch (error) {
-    console.error('Erro ao buscar produtos:', error);
+    toast.error('Erro ao carregar produtos.');
   }
 };
 
+const productOptions = computed<SelectOption[]>(() => {
+  return products.value.map(p => ({
+    value: p.id,
+    label: p.nome,
+    sublabel: `Estoque: ${p.estoque}`,
+  }));
+});
+
 const addItem = () => {
+  if (products.value.length === 0) {
+    toast.warning('Cadastre um produto antes de adicionar itens.');
+    return;
+  }
   const firstProduct = products.value[0];
   saleItems.value.push({
     id: firstProduct?.id || 0,
@@ -52,28 +73,73 @@ const removeItem = (index: number) => {
   saleItems.value.splice(index, 1);
 };
 
+const getSubtotal = (item: SaleItem) => {
+  return item.quantidade * item.preco_unitario;
+};
+
+const getItemProfit = (item: SaleItem) => {
+  const product = products.value.find(p => p.id === item.id);
+  if (!product) return 0;
+  return (item.preco_unitario - product.custo_medio) * item.quantidade;
+};
+
+const getItemStock = (item: SaleItem) => {
+  const product = products.value.find(p => p.id === item.id);
+  return product?.estoque ?? 0;
+};
+
+const isItemOverStock = (item: SaleItem) => {
+  return item.quantidade > getItemStock(item);
+};
+
 const totalSale = computed(() => {
-  return saleItems.value.reduce((acc, item) => acc + (item.quantidade * item.preco_unitario), 0);
+  return saleItems.value.reduce((acc, item) => acc + getSubtotal(item), 0);
+});
+
+const estimatedProfit = computed(() => {
+  return saleItems.value.reduce((acc, item) => acc + getItemProfit(item), 0);
+});
+
+const profitMargin = computed(() => {
+  if (totalSale.value === 0) return 0;
+  return (estimatedProfit.value / totalSale.value) * 100;
+});
+
+const hasStockIssues = computed(() => {
+  return saleItems.value.some(item => isItemOverStock(item));
 });
 
 const submitSale = async () => {
-  if (!client.value || saleItems.value.length === 0) return;
+  if (!client.value.trim()) {
+    toast.warning('Informe o nome do cliente.');
+    return;
+  }
+  if (saleItems.value.length === 0) {
+    toast.warning('Adicione pelo menos um item à venda.');
+    return;
+  }
+  if (hasStockIssues.value) {
+    toast.error('Existem itens com quantidade superior ao estoque disponível.');
+    return;
+  }
 
   try {
     loading.value = true;
-    const response = await api.post('/vendas', {
+    const response = await api.post('/sales', {
       cliente: client.value,
       produtos: saleItems.value
     });
     
-    // Reset form after success
+    const totalVenda = formatCurrency(response.data.total_venda);
+    const lucro = formatCurrency(response.data.lucro_total);
+    toast.success(`Venda realizada! Total: ${totalVenda} | Lucro: ${lucro}`);
+    
     client.value = '';
     saleItems.value = [];
-    alert(`Venda realizada! Total: ${formatCurrency(response.data.total_venda)} | Lucro: ${formatCurrency(response.data.lucro_total)}`);
+    fetchProducts();
   } catch (error: any) {
-    console.error('Erro ao registrar venda:', error);
     const message = error.response?.data?.message || 'Erro ao registrar venda.';
-    alert(message);
+    toast.error(message);
   } finally {
     loading.value = false;
   }
@@ -88,9 +154,18 @@ const formatCurrency = (value: number) => {
 
 <template>
   <div class="space-y-6">
-    <div>
-      <h2 class="text-2xl font-bold text-slate-900 dark:text-white">Registrar Venda</h2>
-      <p class="text-slate-600 dark:text-slate-400">Saída de produtos e cálculo de lucro.</p>
+    <div class="flex items-center gap-4">
+      <button
+        @click="router.push('/sales/list')"
+        class="p-2 rounded-xl text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+        title="Voltar"
+      >
+        <ArrowLeftIcon class="w-5 h-5" />
+      </button>
+      <div>
+        <h2 class="text-2xl font-bold text-slate-900 dark:text-white">Registrar Venda</h2>
+        <p class="text-slate-600 dark:text-slate-400">Saída de produtos e cálculo de lucro.</p>
+      </div>
     </div>
 
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
@@ -102,7 +177,7 @@ const formatCurrency = (value: number) => {
             <input 
               v-model="client"
               type="text" 
-              class="w-full bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700 rounded-xl px-4 py-2 text-slate-900 dark:text-white focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-all"
+              class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-2.5 text-slate-900 dark:text-white focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-all outline-none"
               placeholder="Nome do cliente"
             >
           </div>
@@ -123,18 +198,24 @@ const formatCurrency = (value: number) => {
               Nenhum item adicionado à venda.
             </div>
 
-            <div v-for="(item, index) in saleItems" :key="index" class="flex flex-wrap md:flex-nowrap items-end gap-4 p-4 bg-slate-50 dark:bg-slate-800/50 rounded-xl">
+            <div 
+              v-for="(item, index) in saleItems" 
+              :key="index" 
+              :class="[
+                'flex flex-wrap md:flex-nowrap items-end gap-4 p-4 rounded-xl transition-colors',
+                isItemOverStock(item) 
+                  ? 'bg-red-50 dark:bg-red-900/10 border border-red-200 dark:border-red-800' 
+                  : 'bg-slate-50 dark:bg-slate-800/50'
+              ]"
+            >
               <div class="flex-1 min-w-[200px]">
                 <label class="block text-xs font-medium text-slate-500 mb-1">Produto</label>
-                <select 
-                  v-model="item.id"
-                  @change="updatePrice(index)"
-                  class="w-full bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-white"
-                >
-                  <option v-for="p in products" :key="p.id" :value="p.id">
-                    {{ p.nome }} (Estoque: {{ p.estoque }})
-                  </option>
-                </select>
+                <SearchableSelect
+                  :modelValue="item.id"
+                  @update:modelValue="(val) => { item.id = val as number; updatePrice(index); }"
+                  :options="productOptions"
+                  placeholder="Buscar produto..."
+                />
               </div>
               <div class="w-24">
                 <label class="block text-xs font-medium text-slate-500 mb-1">Qtd</label>
@@ -142,17 +223,25 @@ const formatCurrency = (value: number) => {
                   v-model.number="item.quantidade"
                   type="number" 
                   min="1"
-                  class="w-full bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-white"
+                  :max="getItemStock(item)"
+                  :class="[
+                    'w-full bg-white dark:bg-slate-900 border rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-white outline-none',
+                    isItemOverStock(item) 
+                      ? 'border-red-400 dark:border-red-600' 
+                      : 'border-slate-200 dark:border-slate-700'
+                  ]"
                 >
+                <p v-if="isItemOverStock(item)" class="text-xs text-red-500 mt-1">
+                  Máx: {{ getItemStock(item) }}
+                </p>
               </div>
-              <div class="w-32">
+              <div class="w-36">
                 <label class="block text-xs font-medium text-slate-500 mb-1">Preço Unit.</label>
-                <input 
-                  v-model.number="item.preco_unitario"
-                  type="number" 
-                  step="0.01"
-                  class="w-full bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-white"
-                >
+                <CurrencyInput v-model="item.preco_unitario" />
+              </div>
+              <div class="w-28 text-right">
+                <label class="block text-xs font-medium text-slate-500 mb-1">Subtotal</label>
+                <p class="text-sm font-medium text-slate-700 dark:text-slate-300 py-2">{{ formatCurrency(getSubtotal(item)) }}</p>
               </div>
               <button 
                 @click="removeItem(index)"
@@ -179,11 +268,37 @@ const formatCurrency = (value: number) => {
               <span>Total</span>
               <span>{{ formatCurrency(totalSale) }}</span>
             </div>
+
+            <!-- Estimated Profit -->
+            <div class="bg-green-50 dark:bg-green-900/10 rounded-xl p-4 space-y-2 border border-green-100 dark:border-green-900/30">
+              <div class="flex justify-between items-center">
+                <span class="text-sm font-medium text-green-700 dark:text-green-400">Lucro Estimado</span>
+                <span 
+                  :class="[
+                    'text-lg font-bold',
+                    estimatedProfit >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'
+                  ]"
+                >
+                  {{ estimatedProfit >= 0 ? '+' : '' }}{{ formatCurrency(estimatedProfit) }}
+                </span>
+              </div>
+              <div class="flex justify-between items-center text-xs text-green-600/70 dark:text-green-400/60">
+                <span>Margem</span>
+                <span>{{ profitMargin.toFixed(1) }}%</span>
+              </div>
+            </div>
+
+            <!-- Stock warning -->
+            <div v-if="hasStockIssues" class="bg-red-50 dark:bg-red-900/10 rounded-xl p-3 border border-red-200 dark:border-red-800">
+              <p class="text-xs text-red-600 dark:text-red-400 font-medium">
+                ⚠️ Existem itens com quantidade acima do estoque disponível.
+              </p>
+            </div>
           </div>
 
           <button 
             @click="submitSale"
-            :disabled="loading || saleItems.length === 0 || !client"
+            :disabled="loading || saleItems.length === 0 || !client || hasStockIssues"
             class="w-full flex items-center justify-center gap-2 bg-primary-600 hover:bg-primary-700 disabled:bg-slate-300 dark:disabled:bg-slate-800 disabled:cursor-not-allowed text-white px-6 py-3 rounded-xl transition-colors font-bold shadow-lg shadow-primary-500/20"
           >
             <BanknotesIcon class="w-5 h-5" v-if="!loading" />

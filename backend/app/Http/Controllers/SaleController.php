@@ -17,9 +17,29 @@ class SaleController extends Controller
         $this->saleService = $saleService;
     }
 
-    public function index()
+    public function index(Request $request)
     {
-        return response()->json(Sale::with('items.product')->latest()->get());
+        $perPage = $request->input('per_page', 15);
+
+        $paginated = Sale::with('items.product')->latest()->paginate($perPage);
+
+        $paginated->getCollection()->transform(fn($sale) => [
+            'id'           => $sale->id,
+            'client'       => $sale->customer,
+            'total_value'  => (float) $sale->total,
+            'total_profit' => (float) $sale->profit,
+            'created_at'   => $sale->created_at,
+            'items'        => $sale->items->map(fn($item) => [
+                'id'            => $item->id,
+                'product_id'    => $item->product_id,
+                'product_name'  => $item->product?->name,
+                'quantity'      => $item->quantity,
+                'unit_price'    => (float) $item->unit_price,
+                'average_cost_at_sale' => (float) $item->average_cost_at_sale,
+            ]),
+        ]);
+
+        return response()->json($paginated);
     }
 
     public function store(Request $request)
@@ -38,7 +58,12 @@ class SaleController extends Controller
 
         try {
             $sale = $this->saleService->createSale($request->all());
-            return response()->json($sale, 201);
+            return response()->json([
+                'id'          => $sale->id,
+                'total_venda' => (float) $sale->total,
+                'lucro_total' => (float) $sale->profit,
+                'message'     => 'Venda registrada com sucesso!',
+            ], 201);
         } catch (Exception $e) {
             return response()->json(['message' => $e->getMessage()], 400);
         }
